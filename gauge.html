@@ -16,7 +16,6 @@
       font-family: 'Segoe UI', Arial, sans-serif;
     }
 
-    /* Ocupa TODO o espaço do container do Tableau */
     #app {
       width: 100%;
       height: 100%;
@@ -24,49 +23,44 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      padding: 8px;
     }
 
     #title {
-      font-size: 1.1vw;
       font-weight: 700;
       color: #222;
       margin-bottom: 4px;
       text-align: center;
       white-space: nowrap;
+      /* tamanho relativo à largura do container */
+      font-size: clamp(11px, 1.8vw, 18px);
     }
 
-    /* Wrapper ocupa toda largura disponível, limitado pela altura */
     #gauge-wrapper {
+      /* ocupa todo o espaço restante após o título */
       width: 100%;
-      max-width: 100%;
-      flex: 1;
+      flex: 1 1 0;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 0;
     }
 
-    /* SVG escala para preencher o espaço mantendo proporção */
     #gauge-svg {
+      /* preenche o wrapper mantendo proporção */
       width: 100%;
       height: 100%;
-      max-height: 100%;
       display: block;
-      overflow: visible;
     }
 
     #labels-row {
       display: flex;
       justify-content: space-between;
-      width: 85%;   /* alinhado com a largura visual do arco */
-      padding: 0;
-      margin-top: -2%;
-    }
-
-    .edge-label {
-      font-size: 0.75vw;
+      width: 82%;
+      font-size: clamp(9px, 1vw, 12px);
       color: #999;
+      margin-top: 2px;
     }
 
     #debug {
@@ -79,116 +73,105 @@
       word-break: break-all;
       max-height: 80px;
       overflow-y: auto;
-      display: none;
     }
   </style>
 </head>
 <body>
-
 <div id="app">
   <div id="title">—</div>
   <div id="gauge-wrapper">
-    <!--
-      viewBox="0 0 220 130"
-      Centro do arco: cx=110, cy=118, r=95
-      Semicírculo pelo topo: M(15,118) A 95 95 0 0 1 (205,118)
-      sweep=1 → horário no SVG → passa pelo topo
-    -->
     <svg id="gauge-svg"
-         viewBox="0 0 220 130"
+         viewBox="0 0 220 125"
          preserveAspectRatio="xMidYMid meet"
          xmlns="http://www.w3.org/2000/svg">
 
-      <!-- Arco fundo cinza -->
+      <!-- fundo cinza: de 180° a 0° pelo topo, sweep=1 -->
       <path id="arc-bg"
-        d="M 15 118 A 95 95 0 0 1 205 118"
+        d="M 15 113 A 95 95 0 0 1 205 113"
         fill="none" stroke="#DCDCDC" stroke-width="18" stroke-linecap="round"/>
 
-      <!-- Arco preenchido -->
+      <!-- preenchimento azul (calculado em JS) -->
       <path id="arc-fill" d=""
         fill="none" stroke="#5B9BD5" stroke-width="18" stroke-linecap="round"/>
 
       <!-- Valor | % -->
-      <text id="text-value"
-        x="110" y="96"
+      <text id="text-value" x="110" y="88"
         text-anchor="middle"
-        font-family="'Segoe UI', Arial, sans-serif"
-        font-size="14" font-weight="700" fill="#222">— | —</text>
+        font-family="'Segoe UI',Arial,sans-serif"
+        font-size="15" font-weight="700" fill="#222">— | —</text>
 
       <!-- Target -->
-      <text id="text-target"
-        x="110" y="113"
+      <text id="text-target" x="110" y="106"
         text-anchor="middle"
-        font-family="'Segoe UI', Arial, sans-serif"
-        font-size="10" fill="#666">Target: —</text>
+        font-family="'Segoe UI',Arial,sans-serif"
+        font-size="11" fill="#666">Target: —</text>
 
     </svg>
-
     <div id="labels-row">
-      <span class="edge-label">0%</span>
-      <span class="edge-label">100%</span>
+      <span>0%</span>
+      <span>100%</span>
     </div>
   </div>
 </div>
-
-<div id="debug"></div>
+<div id="debug">Iniciando...</div>
 
 <script>
-  // ─── Debug (ativar se precisar) ───────────────────────────────────────────
-  const DEBUG = false;
+  // ── Debug ─────────────────────────────────────────────────────────────────
   const logs = [];
   function log(msg) {
     console.log(msg);
-    if (!DEBUG) return;
     logs.push(msg);
-    const d = document.getElementById('debug');
-    d.style.display = 'block';
-    d.textContent = logs.join(' | ');
+    document.getElementById('debug').textContent = logs.join(' | ');
   }
 
-  // ─── Geometria ────────────────────────────────────────────────────────────
-  const CX = 110, CY = 118, R = 95;
+  // ── Geometria ─────────────────────────────────────────────────────────────
+  // Centro e raio do arco (coordenadas do viewBox 220×125)
+  const CX = 110, CY = 113, R = 95;
 
   function polarXY(deg) {
     const rad = deg * Math.PI / 180;
     return { x: CX + R * Math.cos(rad), y: CY - R * Math.sin(rad) };
   }
 
+  // sweep=1 → horário no SVG → arco passa pelo topo
   function arcPath(startDeg, endDeg) {
     const s = polarXY(startDeg), e = polarXY(endDeg);
     const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0;
     return `M ${s.x.toFixed(2)} ${s.y.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${e.x.toFixed(2)} ${e.y.toFixed(2)}`;
   }
 
-  // ─── Formatação ───────────────────────────────────────────────────────────
+  // ── Formatação ────────────────────────────────────────────────────────────
   function fmt(v) {
     if (v === null || v === undefined || isNaN(v)) return '—';
     const a = Math.abs(v);
-    if (a >= 1e9) return (v / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
-    if (a >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
-    if (a >= 1e3) return (v / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+    if (a >= 1e9) return (v/1e9).toFixed(1).replace(/\.0$/,'') + 'B';
+    if (a >= 1e6) return (v/1e6).toFixed(1).replace(/\.0$/,'') + 'M';
+    if (a >= 1e3) return (v/1e3).toFixed(1).replace(/\.0$/,'') + 'K';
     return v.toFixed(0);
   }
 
+  // Extrai número de uma célula do Tableau (value ou formattedValue)
   function parseNum(cell) {
     if (!cell) return null;
     const n = parseFloat(String(cell.value).replace(',', '.'));
     if (!isNaN(n)) return n;
-    const s = String(cell.formattedValue).replace(/[^\d.,-]/g, '').replace(',', '.');
+    const s = String(cell.formattedValue).replace(/[^\d.,-]/g,'').replace(',','.');
     const n2 = parseFloat(s);
     return isNaN(n2) ? null : n2;
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   function render(valueNum, targetNum, pctNum) {
+    // Calcula percentual
     let pct = pctNum;
     if (pct === null) {
       pct = (targetNum && targetNum > 0) ? valueNum / targetNum : 0;
     } else if (pct > 1) {
-      pct = pct / 100;
+      pct = pct / 100; // campo veio como 20 em vez de 0.20
     }
     pct = Math.min(Math.max(pct || 0, 0), 1);
 
+    // Desenha arco: 0% → endDeg=180 (nada), 100% → endDeg=0 (tudo)
     const endDeg = 180 - pct * 180;
     const arcFill = document.getElementById('arc-fill');
     if (pct > 0.005) {
@@ -204,12 +187,13 @@
       'Target: ' + fmt(targetNum);
   }
 
-  // ─── Carrega dados do Tableau ─────────────────────────────────────────────
+  // ── Lê dados do Tableau ───────────────────────────────────────────────────
   async function loadData() {
     try {
       const ws = tableau.extensions.worksheetContent.worksheet;
       log('ws=' + ws.name);
 
+      // 1. Lê todas as colunas e primeira linha de dados
       let columns, allRows;
       try {
         const reader = await ws.getSummaryDataReaderAsync();
@@ -218,77 +202,90 @@
         columns = page.columns;
         allRows = page.data;
       } catch (e) {
-        log('reader fallback: ' + e.message);
+        log('reader err, fallback: ' + e.message);
         const dt = await ws.getSummaryDataAsync();
         columns  = dt.columns;
         allRows  = dt.data;
       }
 
-      log('cols=' + columns.map(c => c.fieldName).join(';'));
-
       if (!allRows || allRows.length === 0) { log('SEM DADOS'); return; }
-      const firstRow = allRows[0];
-      log('row[0]=' + firstRow.map(c => c.value).join(';'));
 
-      // Encoding map
-      let encField = {};
+      const firstRow = allRows[0];
+      const colNames = columns.map(c => c.fieldName);
+      log('cols: ' + colNames.join(' | '));
+      log('vals: ' + firstRow.map(c => c.value).join(' | '));
+
+      // 2. Mapa encoding id → nome do campo via getVisualSpecificationAsync
+      //    Para campos AGG(), o nome retornado pode ser "KPI_Actual" (sem AGG)
+      //    ou pode vir nulo — por isso usamos fallback por posição (A, B, C, D)
+      let encByPos = {}; // { 0: 'value', 1: 'target', 2: 'pct', 3: 'label' }
+      let encField = {}; // { 'value': 'KPI_Actual', ... }
+
       try {
         const spec  = await ws.getVisualSpecificationAsync();
         const marks = spec.marksSpecifications[spec.activeMarksSpecificationIndex];
-        for (const enc of marks.encodings) {
-          if (enc.field) encField[enc.id] = enc.field.name;
-        }
-        log('enc=' + JSON.stringify(encField));
+        log('encodings raw: ' + JSON.stringify(marks.encodings.map(e => ({id:e.id, field: e.field?.name ?? e.field}))));
+
+        marks.encodings.forEach((enc, pos) => {
+          encByPos[pos] = enc.id;
+          // enc.field pode ser objeto {name} ou string ou null
+          const fname = enc.field?.name ?? (typeof enc.field === 'string' ? enc.field : null);
+          if (fname) encField[enc.id] = fname;
+        });
+        log('encField: ' + JSON.stringify(encField));
       } catch (e) {
         log('spec err: ' + e.message);
       }
 
+      // 3. Mapa nome coluna → índice (inclui variantes AGG(x) e SUM(x))
       const colIdx = {};
       columns.forEach((c, i) => { colIdx[c.fieldName] = i; });
 
+      // Encontra a célula para um encoding id
       function findCell(encId) {
         const fieldName = encField[encId];
         if (!fieldName) return null;
-        if (colIdx[fieldName] !== undefined)           return firstRow[colIdx[fieldName]];
-        if (colIdx['AGG('+fieldName+')'] !== undefined) return firstRow[colIdx['AGG('+fieldName+')']];
-        const key = Object.keys(colIdx).find(k => k.includes(fieldName));
-        return key ? firstRow[colIdx[key]] : null;
+        // Tenta: exato, AGG(x), SUM(x), parcial
+        for (const key of [fieldName, `AGG(${fieldName})`, `SUM(${fieldName})`]) {
+          if (colIdx[key] !== undefined) return firstRow[colIdx[key]];
+        }
+        const found = Object.keys(colIdx).find(k => k.includes(fieldName));
+        return found ? firstRow[colIdx[found]] : null;
       }
 
-      let valueCell, targetCell, pctCell, labelCell;
-
-      if (Object.keys(encField).length > 0) {
-        valueCell  = findCell('value');
-        targetCell = findCell('target');
-        pctCell    = findCell('pct');
-        labelCell  = findCell('label');
-      } else {
-        log('enc vazio - inferindo por nome');
-        columns.forEach((c, i) => {
-          const n = c.fieldName.toLowerCase();
-          if (n.includes('actual') || n.includes('valor'))    valueCell  = firstRow[i];
-          if (n.includes('target') || n.includes('meta'))     targetCell = firstRow[i];
-          if (n.includes('%') || n.includes('pct'))           pctCell    = firstRow[i];
-          if (n.includes('label') || n.includes('titulo'))    labelCell  = firstRow[i];
-        });
+      // 4. FALLBACK POR POSIÇÃO: se encField não resolveu o campo,
+      //    usa a posição da coluna diretamente (A=col0, B=col1, C=col2, D=col3)
+      //    pois o Tableau retorna as colunas na mesma ordem dos tiles A, B, C, D
+      function cellByPos(pos) {
+        return firstRow[pos] ?? null;
       }
+
+      const valueCell  = findCell('value')  ?? cellByPos(0);
+      const targetCell = findCell('target') ?? cellByPos(1);
+      const pctCell    = findCell('pct')    ?? cellByPos(2);
+      const labelCell  = findCell('label')  ?? cellByPos(3);
 
       const valueNum  = parseNum(valueCell);
       const targetNum = parseNum(targetCell);
       const pctNum    = parseNum(pctCell);
-      const labelText = labelCell ? labelCell.formattedValue : (encField['label'] || '');
+      const labelText = labelCell?.formattedValue ?? '';
 
       log(`v=${valueNum} t=${targetNum} p=${pctNum} l=${labelText}`);
 
       if (labelText) document.getElementById('title').textContent = labelText;
       render(valueNum, targetNum, pctNum);
 
+      // Esconde debug se tudo carregou com valores
+      if (valueNum !== null || targetNum !== null) {
+        document.getElementById('debug').style.display = 'none';
+      }
+
     } catch (err) {
-      log('ERRO: ' + err.message);
+      log('ERRO GERAL: ' + err.message);
     }
   }
 
-  // ─── Boot ─────────────────────────────────────────────────────────────────
+  // ── Boot ──────────────────────────────────────────────────────────────────
   tableau.extensions.initializeAsync().then(() => {
     log('init OK');
     loadData();
