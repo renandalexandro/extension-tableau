@@ -7,38 +7,68 @@
   <script src="https://public.tableau.com/javascripts/api/tableau.extensions.1.latest.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      background: transparent;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
+
+    html, body {
+      width: 100%;
+      height: 100%;
       overflow: hidden;
+      background: transparent;
+      font-family: 'Segoe UI', Arial, sans-serif;
     }
+
+    /* Ocupa TODO o espaço do container do Tableau */
     #app {
+      width: 100%;
+      height: 100%;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 8px;
+      justify-content: center;
     }
+
     #title {
-      font-size: 13px;
+      font-size: 1.1vw;
       font-weight: 700;
       color: #222;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
       text-align: center;
+      white-space: nowrap;
     }
-    #gauge-wrapper { position: relative; width: 220px; }
-    #gauge-svg { display: block; width: 100%; overflow: visible; }
+
+    /* Wrapper ocupa toda largura disponível, limitado pela altura */
+    #gauge-wrapper {
+      width: 100%;
+      max-width: 100%;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 0;
+    }
+
+    /* SVG escala para preencher o espaço mantendo proporção */
+    #gauge-svg {
+      width: 100%;
+      height: 100%;
+      max-height: 100%;
+      display: block;
+      overflow: visible;
+    }
+
     #labels-row {
       display: flex;
       justify-content: space-between;
-      width: 100%;
-      margin-top: 2px;
-      padding: 0 4px;
+      width: 85%;   /* alinhado com a largura visual do arco */
+      padding: 0;
+      margin-top: -2%;
     }
-    .edge-label { font-size: 10px; color: #999; }
+
+    .edge-label {
+      font-size: 0.75vw;
+      color: #999;
+    }
+
     #debug {
       position: fixed;
       bottom: 0; left: 0; right: 0;
@@ -47,8 +77,9 @@
       font-size: 10px;
       padding: 4px 8px;
       word-break: break-all;
-      max-height: 120px;
+      max-height: 80px;
       overflow-y: auto;
+      display: none;
     }
   </style>
 </head>
@@ -57,19 +88,42 @@
 <div id="app">
   <div id="title">—</div>
   <div id="gauge-wrapper">
-    <svg id="gauge-svg" viewBox="0 0 220 120" xmlns="http://www.w3.org/2000/svg">
+    <!--
+      viewBox="0 0 220 130"
+      Centro do arco: cx=110, cy=118, r=95
+      Semicírculo pelo topo: M(15,118) A 95 95 0 0 1 (205,118)
+      sweep=1 → horário no SVG → passa pelo topo
+    -->
+    <svg id="gauge-svg"
+         viewBox="0 0 220 130"
+         preserveAspectRatio="xMidYMid meet"
+         xmlns="http://www.w3.org/2000/svg">
+
+      <!-- Arco fundo cinza -->
       <path id="arc-bg"
-        d="M 25 110 A 85 85 0 0 1 195 110"
-        fill="none" stroke="#DCDCDC" stroke-width="20" stroke-linecap="round"/>
+        d="M 15 118 A 95 95 0 0 1 205 118"
+        fill="none" stroke="#DCDCDC" stroke-width="18" stroke-linecap="round"/>
+
+      <!-- Arco preenchido -->
       <path id="arc-fill" d=""
-        fill="none" stroke="#5B9BD5" stroke-width="20" stroke-linecap="round"/>
-      <text id="text-value" x="110" y="90" text-anchor="middle"
+        fill="none" stroke="#5B9BD5" stroke-width="18" stroke-linecap="round"/>
+
+      <!-- Valor | % -->
+      <text id="text-value"
+        x="110" y="96"
+        text-anchor="middle"
         font-family="'Segoe UI', Arial, sans-serif"
         font-size="14" font-weight="700" fill="#222">— | —</text>
-      <text id="text-target" x="110" y="106" text-anchor="middle"
+
+      <!-- Target -->
+      <text id="text-target"
+        x="110" y="113"
+        text-anchor="middle"
         font-family="'Segoe UI', Arial, sans-serif"
         font-size="10" fill="#666">Target: —</text>
+
     </svg>
+
     <div id="labels-row">
       <span class="edge-label">0%</span>
       <span class="edge-label">100%</span>
@@ -77,36 +131,45 @@
   </div>
 </div>
 
-<div id="debug">Iniciando...</div>
+<div id="debug"></div>
 
 <script>
-  // ─── Debug ────────────────────────────────────────────────────────────────
+  // ─── Debug (ativar se precisar) ───────────────────────────────────────────
+  const DEBUG = false;
   const logs = [];
   function log(msg) {
     console.log(msg);
+    if (!DEBUG) return;
     logs.push(msg);
-    document.getElementById('debug').textContent = logs.join(' | ');
+    const d = document.getElementById('debug');
+    d.style.display = 'block';
+    d.textContent = logs.join(' | ');
   }
 
   // ─── Geometria ────────────────────────────────────────────────────────────
-  const CX = 110, CY = 110, R = 85;
+  const CX = 110, CY = 118, R = 95;
+
   function polarXY(deg) {
     const rad = deg * Math.PI / 180;
     return { x: CX + R * Math.cos(rad), y: CY - R * Math.sin(rad) };
   }
+
   function arcPath(startDeg, endDeg) {
     const s = polarXY(startDeg), e = polarXY(endDeg);
     const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0;
     return `M ${s.x.toFixed(2)} ${s.y.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${e.x.toFixed(2)} ${e.y.toFixed(2)}`;
   }
+
+  // ─── Formatação ───────────────────────────────────────────────────────────
   function fmt(v) {
-    if (v === null || isNaN(v)) return '—';
+    if (v === null || v === undefined || isNaN(v)) return '—';
     const a = Math.abs(v);
-    if (a >= 1e9) return (v/1e9).toFixed(1).replace(/\.0$/,'') + 'B';
-    if (a >= 1e6) return (v/1e6).toFixed(1).replace(/\.0$/,'') + 'M';
-    if (a >= 1e3) return (v/1e3).toFixed(1).replace(/\.0$/,'') + 'K';
+    if (a >= 1e9) return (v / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+    if (a >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (a >= 1e3) return (v / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
     return v.toFixed(0);
   }
+
   function parseNum(cell) {
     if (!cell) return null;
     const n = parseFloat(String(cell.value).replace(',', '.'));
@@ -134,19 +197,19 @@
     } else {
       arcFill.style.display = 'none';
     }
+
     document.getElementById('text-value').textContent =
       fmt(valueNum) + ' | ' + (pct * 100).toFixed(0) + '%';
     document.getElementById('text-target').textContent =
       'Target: ' + fmt(targetNum);
   }
 
-  // ─── Carrega dados ────────────────────────────────────────────────────────
+  // ─── Carrega dados do Tableau ─────────────────────────────────────────────
   async function loadData() {
     try {
       const ws = tableau.extensions.worksheetContent.worksheet;
       log('ws=' + ws.name);
 
-      // — Lê dados brutos primeiro —
       let columns, allRows;
       try {
         const reader = await ws.getSummaryDataReaderAsync();
@@ -154,24 +217,20 @@
         await reader.releaseAsync();
         columns = page.columns;
         allRows = page.data;
-      } catch(e) {
-        log('reader err:' + e.message + ' -> fallback');
+      } catch (e) {
+        log('reader fallback: ' + e.message);
         const dt = await ws.getSummaryDataAsync();
-        columns = dt.columns;
-        allRows = dt.data;
+        columns  = dt.columns;
+        allRows  = dt.data;
       }
 
       log('cols=' + columns.map(c => c.fieldName).join(';'));
 
-      if (!allRows || allRows.length === 0) {
-        log('SEM DADOS');
-        return;
-      }
-
+      if (!allRows || allRows.length === 0) { log('SEM DADOS'); return; }
       const firstRow = allRows[0];
       log('row[0]=' + firstRow.map(c => c.value).join(';'));
 
-      // — Tenta visual spec para pegar encoding —
+      // Encoding map
       let encField = {};
       try {
         const spec  = await ws.getVisualSpecificationAsync();
@@ -180,29 +239,22 @@
           if (enc.field) encField[enc.id] = enc.field.name;
         }
         log('enc=' + JSON.stringify(encField));
-      } catch(e) {
-        log('spec err:' + e.message);
+      } catch (e) {
+        log('spec err: ' + e.message);
       }
 
-      // Mapa coluna → índice (tenta nome exato e com prefixo AGG())
       const colIdx = {};
       columns.forEach((c, i) => { colIdx[c.fieldName] = i; });
 
       function findCell(encId) {
         const fieldName = encField[encId];
         if (!fieldName) return null;
-        // 1. exato
-        if (colIdx[fieldName] !== undefined) return firstRow[colIdx[fieldName]];
-        // 2. AGG(nome)
-        const agg = 'AGG(' + fieldName + ')';
-        if (colIdx[agg] !== undefined) return firstRow[colIdx[agg]];
-        // 3. parcial
+        if (colIdx[fieldName] !== undefined)           return firstRow[colIdx[fieldName]];
+        if (colIdx['AGG('+fieldName+')'] !== undefined) return firstRow[colIdx['AGG('+fieldName+')']];
         const key = Object.keys(colIdx).find(k => k.includes(fieldName));
-        if (key) return firstRow[colIdx[key]];
-        return null;
+        return key ? firstRow[colIdx[key]] : null;
       }
 
-      // — Fallback: se encoding vazio, usa posição das colunas diretamente —
       let valueCell, targetCell, pctCell, labelCell;
 
       if (Object.keys(encField).length > 0) {
@@ -211,14 +263,13 @@
         pctCell    = findCell('pct');
         labelCell  = findCell('label');
       } else {
-        // Sem encoding: tenta inferir por nome de coluna
-        log('enc vazio - inferindo por nome de coluna');
+        log('enc vazio - inferindo por nome');
         columns.forEach((c, i) => {
           const n = c.fieldName.toLowerCase();
-          if (n.includes('actual') || n.includes('valor') || n.includes('actual')) valueCell  = firstRow[i];
-          if (n.includes('target') || n.includes('meta'))                          targetCell = firstRow[i];
-          if (n.includes('%') || n.includes('pct') || n.includes('percent'))       pctCell    = firstRow[i];
-          if (n.includes('label') || n.includes('titulo') || n.includes('title'))  labelCell  = firstRow[i];
+          if (n.includes('actual') || n.includes('valor'))    valueCell  = firstRow[i];
+          if (n.includes('target') || n.includes('meta'))     targetCell = firstRow[i];
+          if (n.includes('%') || n.includes('pct'))           pctCell    = firstRow[i];
+          if (n.includes('label') || n.includes('titulo'))    labelCell  = firstRow[i];
         });
       }
 
@@ -232,8 +283,8 @@
       if (labelText) document.getElementById('title').textContent = labelText;
       render(valueNum, targetNum, pctNum);
 
-    } catch(err) {
-      log('ERRO GERAL: ' + err.message);
+    } catch (err) {
+      log('ERRO: ' + err.message);
     }
   }
 
