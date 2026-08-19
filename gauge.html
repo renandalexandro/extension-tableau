@@ -21,14 +21,6 @@
       justify-content: center;
       padding: 8px;
     }
-    #title {
-      font-weight: 700;
-      color: #222;
-      margin-bottom: 4px;
-      text-align: center;
-      white-space: nowrap;
-      font-size: clamp(11px, 1.8vw, 18px);
-    }
     #gauge-wrapper {
       width: 100%;
       flex: 1 1 0;
@@ -60,7 +52,6 @@
 </head>
 <body>
 <div id="app">
-  <div id="title">—</div>
   <div id="gauge-wrapper">
     <svg id="gauge-svg" viewBox="0 0 220 125"
          preserveAspectRatio="xMidYMid meet"
@@ -80,9 +71,13 @@
     <div id="labels-row"><span>0%</span><span>100%</span></div>
   </div>
 </div>
-<div id="debug">Aguardando Tableau...</div>
+<div id="debug">Iniciando...</div>
 
 <script>
+  const dbg = document.getElementById('debug');
+  function setDebug(msg) { dbg.style.display='block'; dbg.textContent = msg; }
+  function hideDebug()   { dbg.style.display='none'; }
+
   // ── Geometria ─────────────────────────────────────────────────────────────
   const CX = 110, CY = 113, R = 95;
   function polarXY(deg) {
@@ -106,15 +101,17 @@
   }
   function parseNum(cell) {
     if (!cell) return null;
+    // Tenta .value direto
     const n = parseFloat(String(cell.value).replace(',','.'));
     if (!isNaN(n)) return n;
+    // Tenta formattedValue removendo símbolos
     const s = String(cell.formattedValue).replace(/[^\d.,-]/g,'').replace(',','.');
     const n2 = parseFloat(s);
     return isNaN(n2) ? null : n2;
   }
 
-  // ── Render — ÚNICA fonte de verdade, chamada em qualquer cenário ──────────
-  function render(valueNum, targetNum, pctNum, titleText) {
+  // ── Render ────────────────────────────────────────────────────────────────
+  function render(valueNum, targetNum, pctNum) {
     let pct = pctNum;
     if (pct === null || pct === undefined) {
       pct = (targetNum && targetNum > 0) ? valueNum / targetNum : 0;
@@ -131,27 +128,24 @@
     } else {
       arcFill.style.display = 'none';
     }
-
     document.getElementById('text-value').textContent =
       fmt(valueNum) + ' | ' + (pct * 100).toFixed(0) + '%';
     document.getElementById('text-target').textContent =
       'Target: ' + fmt(targetNum);
-
-    if (titleText) document.getElementById('title').textContent = titleText;
-    document.getElementById('debug').style.display = 'none';
+    hideDebug();
   }
 
-  // ── Lê dados do Tableau ───────────────────────────────────────────────────
+  // ── Lê dados — abordagem direta por posição de coluna ────────────────────
+  // O Tableau retorna as colunas exatamente na ordem dos tiles A, B, C, D.
+  // Não depende de getVisualSpecificationAsync (que pode falhar com AGG()).
   async function loadData() {
-    const dbg = document.getElementById('debug');
-    dbg.style.display = 'block';
-
     try {
       const ws = tableau.extensions.worksheetContent.worksheet;
-      dbg.textContent = 'Lendo dados da worksheet: ' + ws.name;
+      setDebug('Conectado: ' + ws.name + ' — lendo dados...');
 
-      // 1. Lê dados brutos
       let columns, allRows;
+
+      // Tenta reader (mais eficiente)
       try {
         const reader = await ws.getSummaryDataReaderAsync();
         const page   = await reader.getPageAsync(0, 1);
@@ -159,84 +153,52 @@
         columns = page.columns;
         allRows = page.data;
       } catch(e) {
-        dbg.textContent = 'reader err, usando fallback: ' + e.message;
+        // Fallback para getSummaryDataAsync
+        setDebug('Usando fallback getSummaryDataAsync...');
         const dt = await ws.getSummaryDataAsync();
         columns  = dt.columns;
         allRows  = dt.data;
       }
 
       if (!allRows || allRows.length === 0) {
-        dbg.textContent = 'Sem dados na worksheet. Adicione campos nos tiles A, B, C, D.';
+        setDebug('Nenhum dado retornado. Verifique se os campos estão nos tiles A, B, C.');
         return;
       }
 
       const firstRow = allRows[0];
-      dbg.textContent = 'Colunas: ' + columns.map(c => c.fieldName).join(' | ')
-        + '  ·  Valores: ' + firstRow.map(c => c.value).join(' | ');
 
-      // 2. Tenta mapear encoding id → posição da coluna via getVisualSpecificationAsync
-      //    Se falhar, usa posição direta (A=0, B=1, C=2, D=3)
-      let iValue = 0, iTarget = 1, iPct = 2, iLabel = 3;
+      // Log completo para diagnóstico
+      const colInfo = columns.map((c, i) => `[${i}]${c.fieldName}=${firstRow[i]?.value}`).join('  ');
+      setDebug(colInfo);
 
-      try {
-        const spec  = await ws.getVisualSpecificationAsync();
-        const marks = spec.marksSpecifications[spec.activeMarksSpecificationIndex];
-        const colIdx = {};
-        columns.forEach((c, i) => { colIdx[c.fieldName] = i; });
+      // Pega por posição: tile A=0, tile B=1, tile C=2
+      // (ordem garantida pelo Tableau para Viz Extensions)
+      const valueNum  = parseNum(firstRow[0]);
+      const targetNum = parseNum(firstRow[1]);
+      const pctNum    = parseNum(firstRow[2]);
 
-        for (const enc of marks.encodings) {
-          // nome do campo: tenta .name, depois string direta
-          const fname = enc.field?.name ?? (typeof enc.field === 'string' ? enc.field : null);
-          if (!fname) continue;
+      setDebug(`v=${valueNum} | t=${targetNum} | p=${pctNum}`);
 
-          // procura a coluna correspondente (exato, AGG(x), SUM(x), parcial)
-          let idx = colIdx[fname]
-            ?? colIdx[`AGG(${fname})`]
-            ?? colIdx[`SUM(${fname})`]
-            ?? Object.keys(colIdx).findIndex(k => k.includes(fname));
-          if (idx < 0) idx = undefined;
-
-          if (idx !== undefined) {
-            if (enc.id === 'value')  iValue  = idx;
-            if (enc.id === 'target') iTarget = idx;
-            if (enc.id === 'pct')    iPct    = idx;
-            if (enc.id === 'label')  iLabel  = idx;
-          }
-        }
-      } catch(e) {
-        // getVisualSpecificationAsync falhou → mantém posição direta 0,1,2,3
-        dbg.textContent += '  ·  spec err (usando posição direta): ' + e.message;
-      }
-
-      // 3. Extrai valores
-      const valueNum  = parseNum(firstRow[iValue]);
-      const targetNum = parseNum(firstRow[iTarget]);
-      const pctNum    = parseNum(firstRow[iPct]);
-      const labelText = firstRow[iLabel]?.formattedValue ?? '';
-
-      dbg.textContent += `  ·  v=${valueNum} t=${targetNum} p=${pctNum} l=${labelText}`;
-
-      // 4. Renderiza — sempre chamado se chegou até aqui
-      render(valueNum, targetNum, pctNum, labelText);
+      render(valueNum, targetNum, pctNum);
 
     } catch(err) {
-      dbg.textContent = 'ERRO: ' + err.message;
+      setDebug('ERRO: ' + err.message);
     }
   }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
-  // Sempre tenta inicializar o Tableau.
-  // Se falhar (ex: aberto direto no browser), não faz nada — visual fica com "—".
+  setDebug('Aguardando initializeAsync...');
+
   tableau.extensions.initializeAsync()
     .then(() => {
+      setDebug('API inicializada. Carregando dados...');
       loadData();
       tableau.extensions.worksheetContent.worksheet.addEventListener(
         tableau.TableauEventType.SummaryDataChanged, loadData
       );
     })
     .catch(err => {
-      document.getElementById('debug').textContent =
-        'Fora do Tableau (' + (err.message || err) + ')';
+      setDebug('Fora do Tableau: ' + (err.message || String(err)));
     });
 </script>
 </body>
